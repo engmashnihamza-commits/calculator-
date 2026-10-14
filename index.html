@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>الآلة الحاسبة</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="حاسبة">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1c1c1e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, sans-serif;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  .calculator {
+    width: 100%;
+    max-width: 360px;
+    background: #000;
+    border-radius: 32px;
+    padding: 20px 16px 24px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .65);
+  }
+
+  /* ===== الشاشة ===== */
+  .display {
+    direction: ltr;
+    text-align: right;
+    padding: 10px 10px 18px;
+    min-height: 130px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+
+  .history {
+    color: #8e8e93;
+    font-size: 18px;
+    min-height: 24px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .output {
+    color: #fff;
+    font-size: 54px;
+    font-weight: 300;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    letter-spacing: -1px;
+    transition: font-size .12s ease;
+  }
+
+  /* ===== الأزرار ===== */
+  .buttons {
+    direction: ltr;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  .btn {
+    aspect-ratio: 1 / 1;
+    border: none;
+    border-radius: 50%;
+    background: #333333;
+    color: #fff;
+    font-size: 28px;
+    font-weight: 400;
+    font-family: inherit;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: filter .15s, transform .08s, background .15s;
+  }
+
+  .btn:active {
+    filter: brightness(1.7);
+    transform: scale(.95);
+  }
+
+  .btn.func {
+    background: #a5a5a5;
+    color: #000;
+    font-size: 26px;
+  }
+
+  .btn.op {
+    background: #ff9f0a;
+    font-size: 34px;
+    line-height: 1;
+  }
+
+  .btn.op.active {
+    background: #fff;
+    color: #ff9f0a;
+  }
+
+  .btn.zero {
+    grid-column: span 2;
+    aspect-ratio: auto;
+    border-radius: 999px;
+    text-align: left;
+    padding-left: 30px;
+  }
+
+  @media (max-width: 380px) {
+    .btn { font-size: 24px; }
+    .btn.op { font-size: 30px; }
+    .output { font-size: 46px; }
+    .buttons { gap: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="calculator">
+  <div class="display">
+    <div class="history" id="history"></div>
+    <div class="output" id="output">0</div>
+  </div>
+
+  <div class="buttons" id="buttons">
+    <button class="btn func" data-action="clear">AC</button>
+    <button class="btn func" data-action="sign">+/−</button>
+    <button class="btn func" data-action="percent">%</button>
+    <button class="btn op" data-action="operator" data-op="÷">÷</button>
+
+    <button class="btn" data-action="digit" data-digit="7">7</button>
+    <button class="btn" data-action="digit" data-digit="8">8</button>
+    <button class="btn" data-action="digit" data-digit="9">9</button>
+    <button class="btn op" data-action="operator" data-op="×">×</button>
+
+    <button class="btn" data-action="digit" data-digit="4">4</button>
+    <button class="btn" data-action="digit" data-digit="5">5</button>
+    <button class="btn" data-action="digit" data-digit="6">6</button>
+    <button class="btn op" data-action="operator" data-op="−">−</button>
+
+    <button class="btn" data-action="digit" data-digit="1">1</button>
+    <button class="btn" data-action="digit" data-digit="2">2</button>
+    <button class="btn" data-action="digit" data-digit="3">3</button>
+    <button class="btn op" data-action="operator" data-op="+">+</button>
+
+    <button class="btn zero" data-action="digit" data-digit="0">0</button>
+    <button class="btn" data-action="dot">.</button>
+    <button class="btn op" data-action="equals">=</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const outputEl  = document.getElementById("output");
+  const historyEl = document.getElementById("history");
+  const buttonsEl = document.getElementById("buttons");
+
+  // ===== حالة الآلة الحاسبة =====
+  let current   = "0";     // الرقم المعروض حالياً (كنص)
+  let previous  = null;    // الرقم الأول (رقم)
+  let operator  = null;    // العملية الحالية
+  let waiting   = false;   // في انتظار الرقم الثاني
+  let lastOp    = null;    // لخاصية الضغط على = مراراً
+  let lastOperand = null;
+
+  const MAX_DIGITS = 12;
+
+  // ===== أدوات مساعدة =====
+
+  // تنسيق الرقم بفواصل الآلاف
+  function formatNumber(str) {
+    if (str === "Error" || str.includes("e")) return str;
+
+    const negative = str.startsWith("-");
+    const body = negative ? str.slice(1) : str;
+    const parts = body.split(".");
+    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    let out = intPart;
+    if (parts[1] !== undefined) out += "." + parts[1];
+    return (negative ? "-" : "") + out;
+  }
+
+  // تحويل نتيجة رقمية إلى نص نظيف
+  function toResultString(n) {
+    if (!isFinite(n)) return "Error";
+    const v = parseFloat(n.toPrecision(12));
+    if (v !== 0 && (Math.abs(v) >= 1e12 || Math.abs(v) < 1e-9)) {
+      return v.toExponential(5);
+    }
+    return String(v);
+  }
+
+  // تنفيذ العملية الحسابية (ترجع null عند الخطأ)
+  function compute(a, b, op) {
+    let r;
+    switch (op) {
+      case "+": r = a + b; break;
+      case "−": r = a - b; break;
+      case "×": r = a * b; break;
+      case "÷":
+        if (b === 0) return null;
+        r = a / b;
+        break;
+      default: return b;
+    }
+    if (!isFinite(r)) return null;
+    return parseFloat(r.toPrecision(12));
+  }
+
+  // ===== الرسم على الشاشة =====
+  function adjustFontSize() {
+    const len = outputEl.textContent.length;
+    outputEl.style.fontSize = len > 13 ? "28px"
+                            : len > 10 ? "36px"
+                            : len > 8  ? "46px"
+                            : "";
+  }
+
+  function highlightOperator() {
+    document.querySelectorAll(".btn.op").forEach(function (b) {
+      const isActive = operator && waiting && b.dataset.op === operator;
+      b.classList.toggle("active", !!isActive);
+    });
+  }
+
+  function render() {
+    outputEl.textContent = formatNumber(current);
+    adjustFontSize();
+
+    historyEl.textContent = (operator && previous !== null)
+      ? formatNumber(toResultString(previous)) + " " + operator
+      : "";
+
+    highlightOperator();
+  }
+
+  function showError() {
+    current = "Error";
+    previous = null;
+    operator = null;
+    waiting = true;
+    lastOp = null;
+    lastOperand = null;
+    render();
+  }
+
+  function resetAll() {
+    current = "0";
+    previous = null;
+    operator = null;
+    waiting = false;
+    lastOp = null;
+    lastOperand = null;
+  }
+
+  // ===== الإدخال =====
+
+  function inputDigit(d) {
+    if (current === "Error") resetAll();
+
+    if (waiting) {
+      current = d;
+      waiting = false;
+      lastOp = null;
+      lastOperand = null;
+    } else {
+      const digitsOnly = current.replace(/[-.]/g, "");
+      if (digitsOnly.length >= MAX_DIGITS) return;
+
+      if (current === "0") current = d;
+      else if (current === "-0") current = "-" + d;
+      else current += d;
+    }
+    render();
+  }
+
+  function inputDot() {
+    if (current === "Error") resetAll();
+
+    if (waiting) {
+      current = "0.";
+      waiting = false;
+      lastOp = null;
+      lastOperand = null;
+      render();
+      return;
+    }
+    if (!current.includes(".")) {
+      current += ".";
+      render();
+    }
+  }
+
+  function clearAll() {
+    resetAll();
+    render();
+  }
+
+  function toggleSign() {
+    if (current === "Error" || current === "0") return;
+    current = current.startsWith("-") ? current.slice(1) : "-" + current;
+    render();
+  }
+
+  function percent() {
+    if (current === "Error") return;
+    let value = parseFloat(current);
+
+    if (operator && previous !== null && !waiting) {
+      value = previous * value / 100;   // مثال: 200 + 10% = 200 + 20
+    } else {
+      value = value / 100;
+    }
+
+    current = toResultString(value);
+    waiting = false;
+    render();
+  }
+
+  function backspace() {
+    if (current === "Error") { resetAll(); render(); return; }
+    if (waiting) return;
+
+    if (current.length <= 1 || (current.length === 2 && current.startsWith("-"))) {
+      current = "0";
+    } else {
+      current = current.slice(0, -1);
+    }
+    render();
+  }
+
+  // ===== العمليات =====
+
+  function chooseOperator(op) {
+    if (current === "Error") return;
+    const inputValue = parseFloat(current);
+
+    // تغيير العملية قبل إدخال الرقم الثاني
+    if (operator && waiting) {
+      operator = op;
+      render();
+      return;
+    }
+
+    if (previous === null) {
+      previous = inputValue;
+    } else if (operator) {
+      const result = compute(previous, inputValue, operator);
+      if (result === null) { showError(); return; }
+      previous = result;
+      current = toResultString(result);
+    }
+
+    operator = op;
+    waiting = true;
+    lastOp = null;
+    lastOperand = null;
+    render();
+  }
+
+  function equals() {
+    if (current === "Error") return;
+
+    // الضغط على = بدون عملية (تكرار آخر عملية)
+    if (operator === null) {
+      if (lastOp !== null && lastOperand !== null) {
+        const result = compute(parseFloat(current), lastOperand, lastOp);
+        if (result === null) { showError(); return; }
+        current = toResultString(result);
+        render();
+      }
+      return;
+    }
+
+    const b = waiting ? previous : parseFloat(current);
+    const result = compute(previous, b, operator);
+    if (result === null) { showError(); return; }
+
+    const expression = formatNumber(toResultString(previous)) + " " +
+                       operator + " " +
+                       formatNumber(toResultString(b)) + " =";
+
+    lastOp = operator;
+    lastOperand = b;
+
+    current = toResultString(result);
+    previous = null;
+    operator = null;
+    waiting = true;
+
+    render();
+    historyEl.textContent = expression;  // إبقاء نص العملية ظاهراً
+  }
+
+  // ===== الأحداث =====
+
+  buttonsEl.addEventListener("click", function (e) {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+
+    switch (btn.dataset.action) {
+      case "digit":    inputDigit(btn.dataset.digit); break;
+      case "dot":      inputDot(); break;
+      case "clear":    clearAll(); break;
+      case "sign":     toggleSign(); break;
+      case "percent":  percent(); break;
+      case "operator": chooseOperator(btn.dataset.op); break;
+      case "equals":   equals(); break;
+    }
+  });
+
+  // دعم لوحة المفاتيح
+  document.addEventListener("keydown", function (e) {
+    const k = e.key;
+
+    if (/^[0-9]$/.test(k))            { inputDigit(k); }
+    else if (k === "." || k === ",")  { inputDot(); }
+    else if (k === "+")               { chooseOperator("+"); }
+    else if (k === "-")               { chooseOperator("−"); }
+    else if (k === "*" || k === "x" || k === "X") { chooseOperator("×"); }
+    else if (k === "/")               { e.preventDefault(); chooseOperator("÷"); }
+    else if (k === "Enter" || k === "=") { e.preventDefault(); equals(); }
+    else if (k === "Escape")          { clearAll(); }
+    else if (k === "Backspace")       { e.preventDefault(); backspace(); }
+    else if (k === "%")               { percent(); }
+  });
+
+  render();
+})();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('تم تسجيل Service Worker'))
+        .catch(err => console.log('فشل التسجيل', err));
+    });
+  }
+</script>
+</body>
+</html>
